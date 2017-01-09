@@ -40,6 +40,7 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,19 +63,20 @@ public class MainActivity extends AppCompatActivity {
     private String mUsername;
 
     private FirebaseDatabase mFirebaseDatabase;                         //to access db
-    private DatabaseReference mMessagesDatabaseReference;                //to access message section of db
-    private ChildEventListener mChildEventListener;
+    private DatabaseReference mMessagesDatabaseReference;               //to access message section of db
+    private ChildEventListener mChildEventListener;                     //to react if any change is made in the child it will be attached to
 
-    private FirebaseAuth mFirebaseAuth;
-    private FirebaseAuth.AuthStateListener mAuthStateListener;
+    private FirebaseAuth mFirebaseAuth;                                 //firebase authorization object
+    private FirebaseAuth.AuthStateListener mAuthStateListener;          //firebase authorization listener object.
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         mUsername = ANONYMOUS;
-        mFirebaseDatabase=FirebaseDatabase.getInstance();
+        mFirebaseDatabase=FirebaseDatabase.getInstance();                                   //mian access point of the db
         mMessagesDatabaseReference =mFirebaseDatabase.getReference().child("messages");      //refer the messages section only
+                                    //mfirebaseDatabase.getReference() access the root node. child can be taken as table for the db
         mFirebaseAuth=FirebaseAuth.getInstance();
 
         // Initialize references to views
@@ -128,39 +130,13 @@ public class MainActivity extends AppCompatActivity {
                 // TODO: Send messages on click
                 FriendlyMessage friendlyMessage=new FriendlyMessage(mMessageEditText.getText().toString(),mUsername,null);
                 mMessagesDatabaseReference.push().setValue(friendlyMessage);
-
+                                            //push sends the message object to the db and everytime it generates an id and returns it
                 // Clear input box
                 mMessageEditText.setText("");
             }
         });
-        mChildEventListener = new ChildEventListener() {
-            @Override
-            public void onChildAdded(DataSnapshot dataSnapshot, String s) {
-                FriendlyMessage friendlyMessage= dataSnapshot.getValue(FriendlyMessage.class);
-                mMessageAdapter.add(friendlyMessage);
-            }
-
-            @Override
-            public void onChildChanged(DataSnapshot dataSnapshot, String s) {
-
-            }
-
-            @Override
-            public void onChildRemoved(DataSnapshot dataSnapshot) {
-
-            }
-
-            @Override
-            public void onChildMoved(DataSnapshot dataSnapshot, String s) {
-
-            }
-
-            @Override
-            public void onCancelled(DatabaseError databaseError) {
-
-            }
-        };
-        mMessagesDatabaseReference.addChildEventListener(mChildEventListener);
+        attachDatabaseReadListener();                                                   //this was necessary as this method contains initialization of mChildEventListener
+        mMessagesDatabaseReference.addChildEventListener(mChildEventListener);          //adds a listener to the messages child(table) of db
 
         /*
         A little documentation:-
@@ -172,16 +148,18 @@ public class MainActivity extends AppCompatActivity {
           this part is handled in onChildAdded method, which is called every time a message is added to the list.
            dataSnapshot has the message added latest.
          */
-            mAuthStateListener=new FirebaseAuth.AuthStateListener() {
+            mAuthStateListener=new FirebaseAuth.AuthStateListener()     //initialization of mAuthStateListener.
+            {
                 @Override
                 public void onAuthStateChanged(@NonNull FirebaseAuth firebaseAuth) {
                     FirebaseUser user= firebaseAuth.getCurrentUser();
                     if(user!=null)
                     {
-
+                        onSignedInInitialize(user.getDisplayName());
                     }
                     else
                     {
+                        onSignedOutCleanup();
                         startActivityForResult(
                                 AuthUI.getInstance()
                                         .createSignInIntentBuilder()
@@ -219,6 +197,66 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        mFirebaseAuth.removeAuthStateListener(mAuthStateListener);
+        if(mAuthStateListener!=null)
+        {
+            mFirebaseAuth.removeAuthStateListener(mAuthStateListener);
+        }
+        detachDatabaseReadListener();
+        mMessageAdapter.clear();
     }
+
+    public void onSignedInInitialize(String name)
+    {
+        mUsername=name;
+//        attachDatabaseReadListener();                 if app crashes, call it in and look for another alternative to prevent messages being read twice from db. basically prevent calling this method twice.
+    }
+
+    public void onSignedOutCleanup()
+    {
+        mUsername=ANONYMOUS;
+        mMessageAdapter.clear();
+        detachDatabaseReadListener();
+    }
+
+    private void attachDatabaseReadListener() {
+        if (mChildEventListener == null) {
+
+            mChildEventListener = new ChildEventListener() {
+                @Override
+                public void onChildAdded(DataSnapshot dataSnapshot, String s)       //it's work is to add a new message in the list
+                                                                                    //and fetch the message list from db on screen
+                {
+                    FriendlyMessage friendlyMessage = dataSnapshot.getValue(FriendlyMessage.class);
+                    mMessageAdapter.add(friendlyMessage);
+                }
+
+                @Override
+                public void onChildChanged(DataSnapshot dataSnapshot, String s) {
+                }
+
+                @Override
+                public void onChildRemoved(DataSnapshot dataSnapshot) {
+                }
+
+                @Override
+                public void onChildMoved(DataSnapshot dataSnapshot, String s) {
+                }
+
+                @Override
+                public void onCancelled(DatabaseError databaseError) {
+                }
+            };
+            mMessagesDatabaseReference.addChildEventListener(mChildEventListener);
+        }
+    }
+
+    public void detachDatabaseReadListener()
+    {
+        if(mChildEventListener!=null)
+        {
+            mMessagesDatabaseReference.removeEventListener(mChildEventListener);
+            mChildEventListener=null;
+        }
+    }
+
 }
